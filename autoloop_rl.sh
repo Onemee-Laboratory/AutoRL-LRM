@@ -1,7 +1,7 @@
 #!/bin/bash
 # autoloop_rl.sh — Autonomous RL Research Loop
 # first set AUTORL_HOME in your .bashrc 
-source $AUTORL_HOME/venv/.venv/bin/activate
+source ~/workspace/working/RL/autorl-lrm/env.sh
 
 AUTORL_LOG=$AUTORL_HOME/log
 
@@ -29,9 +29,9 @@ while true; do
     python eval_rl.py 2>&1 | tee $AUTORL_LOG/eval_rl.log
 
     # Step 3 — extract metrics
-    PASS1=$(grep -oP 'pass@1:\s*\K[\d.]+' eval_rl.log | tail -1)
-    PASS8=$(grep -oP 'pass@8:\s*\K[\d.]+' eval_rl.log | tail -1)
-    ESCAPE=$(grep -oP 'escape_radius:\s*\K[\d.]+' eval_rl.log | tail -1)
+    PASS1=$(grep -oP 'pass@1:\s*\K[\d.]+' $AUTORL_LOG/eval_rl.log | tail -1)
+    PASS8=$(grep -oP 'pass@8:\s*\K[\d.]+' $AUTORL_LOG/eval_rl.log | tail -1)
+    ESCAPE=$(grep -oP 'escape_radius:\s*\K[\d.]+' $AUTORL_LOG/eval_rl.log | tail -1)
     COMMIT=$(git rev-parse --short HEAD)
 
     echo "Result: pass@1=$PASS1 pass@8=$PASS8 escape_radius=$ESCAPE"
@@ -65,7 +65,7 @@ Follow STRICT RULES in program_rl.md."
                --allow-empty 2>/dev/null
 
     # Step 8 - push
-    git push
+    #git push origin main --force
 
     echo "Experiment #$EXPERIMENT done."
     echo ""

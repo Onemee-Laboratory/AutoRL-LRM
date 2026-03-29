@@ -20,14 +20,14 @@ from trl import GRPOConfig, GRPOTrainer
 # === AGENT MODIFIES THESE ===
 # ============================================================
 
-LR                  = 1e-6          # learning rate
-KL_COEFF            = 0.01          # KL penalty weight
+LR                  = 5e-7          # learning rate (reduced from 1e-6 for stability)
+KL_COEFF            = 0.0           # KL penalty weight (reduced to 0.0 to test leash strength)
 REWARD_SHAPING      = "binary"      # binary | dense | confidence_gated
 DEVIATION_BONUS     = 0.0           # CGDB bonus coefficient (0 = disabled)
 DEVIATION_THRESHOLD = 0.5           # CGDB: min reward to trigger bonus
 TEMPERATURE         = 0.8           # sampling temperature
-N_SAMPLES           = 8             # samples per prompt (GRPO group size)
-TRAIN_STEPS         = 100           # training steps
+N_SAMPLES           = 8             # samples per prompt (GRPO group size) — reverted to baseline
+TRAIN_STEPS         = 200           # training steps (baseline)
 GRAD_ACCUM          = 4             # gradient accumulation steps
 MAX_NEW_TOKENS      = 256           # max tokens to generate
 LR_SCHEDULER        = "cosine"      # cosine | constant | linear

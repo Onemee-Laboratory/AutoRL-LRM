@@ -1,0 +1,4 @@
+commit	pass@1	pass@8	escape_radius	status	description
+<current-commit>	0.000	0.000	0.000	discard	failed: torch not installed; attempted LR=5e-7 (train_rl.py)
+0.280	0.430	0.000	keep	baseline: default config (LR=1e-6, N_SAMPLES=8, REWARD_SHAPING=binary)
+<current-commit>	0.000	0.000	0.000	discard	failed: generation_batch_size not divisible by num_generations; fixed by adjusting per_device_train_batch_size to 2
