@@ -20,9 +20,9 @@ from trl import GRPOConfig, GRPOTrainer
 # === AGENT MODIFIES THESE ===
 # ============================================================
 
-LR                  = 5e-7          # learning rate (reduced from 1e-6 for stability)
+LR                  = 1e-6          # learning rate (reverted to baseline)
 KL_COEFF            = 0.0           # KL penalty weight (reduced to 0.0 to test leash strength)
-REWARD_SHAPING      = "binary"      # binary | dense | confidence_gated
+REWARD_SHAPING      = "dense"       # binary | dense | confidence_gated
 DEVIATION_BONUS     = 0.0           # CGDB bonus coefficient (0 = disabled)
 DEVIATION_THRESHOLD = 0.5           # CGDB: min reward to trigger bonus
 TEMPERATURE         = 0.8           # sampling temperature
@@ -149,7 +149,7 @@ def train():
     config = GRPOConfig(
         output_dir=os.environ.get("AUTORL_CHECKPOINTS", AUTORL_HOME + "/checkpoints") + "/latest",
         learning_rate=LR,
-        per_device_train_batch_size=1,
+        per_device_train_batch_size=2,
         gradient_accumulation_steps=GRAD_ACCUM,
         max_steps=TRAIN_STEPS,
         num_generations=N_SAMPLES,
