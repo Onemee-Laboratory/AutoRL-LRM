@@ -15,23 +15,9 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 BASE_MODEL     = "Qwen/Qwen2.5-1.5B-Instruct"
-VAL_PATH       = os.path.join(AUTORL_DATA, "math_val.jsonl")
-
-# Inveniēns novissimum checkpoint ex via in env.sh definita
-try:
-    # Quaerimus in 'latest' sub-folder sicut antea
-    CHECKPOINT_DIR = sorted(
-        AUTORL_CHECKPOINTS.glob("checkpoint-*"), 
-        key=lambda p: int(p.name.split("-")[-1])
-    )[-1]
-except (IndexError, FileNotFoundError):
-    CHECKPOINT_DIR = AUTORL_CHECKPOINTS
-    
-
-BASE_MODEL     = "Qwen/Qwen2.5-1.5B-Instruct"
 VAL_PATH       = os.environ.get("AUTORL_DATA", "data") + "/math_val.jsonl"
 
-#CHECKPOINT_DIR = Path(os.environ.get("AUTORL_CHECKPOINTS", "checkpoints")) / "latest" / "checkpoint-200"
+CHECKPOINT_DIR = Path(os.environ.get("AUTORL_CHECKPOINTS", "checkpoints")) / "latest" / "checkpoint-200"
 
 N_EVAL         = 200
 K_SAMPLES      = 8
@@ -132,15 +118,22 @@ def evaluate():
     if not CHECKPOINT_DIR.exists():
         print(f"ERROR: checkpoint not found at {CHECKPOINT_DIR}")
         return
-
-    tokenizer = AutoTokenizer.from_pretrained(str(CHECKPOINT_DIR))
+    
+    # Ratiō tūta: Tokenizer sūmitur ex fonte nōminātō
+    print(f"Loading tokenizer from: {BASE_MODEL}")
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
+    
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    # Weights sūmuntur ex checkpoint tuō
+    print(f"Loading model weights from: {CHECKPOINT_DIR}")
     model = AutoModelForCausalLM.from_pretrained(
-        str(CHECKPOINT_DIR), dtype=torch.bfloat16, device_map="auto"
+        str(CHECKPOINT_DIR), 
+        torch_dtype=torch.bfloat16, 
+        device_map="auto"
     )
-
+    
     base_model = AutoModelForCausalLM.from_pretrained(
         BASE_MODEL, dtype=torch.bfloat16, device_map="auto"
     )

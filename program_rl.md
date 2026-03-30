@@ -12,13 +12,13 @@ from the base model's distribution (the "leash" metric).
 
 ## Baseline
 ```
-pass@1:         (established on first run)
+Pass@1:         (established on first run)
 pass@8:         (established on first run)
 escape_radius:  (established on first run)
 ```
 Update this section after the first experiment.
 
-## What You Can Modify in train_rl.py
+## What You Can Modify in train_trl.py
 **Only modify the section marked `=== AGENT MODIFIES THESE ===`.**
 
 | Parameter | Default | Range / Options |
