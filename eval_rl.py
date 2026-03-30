@@ -6,12 +6,33 @@ DO NOT MODIFY THIS FILE.
 import os, re, json, torch, numpy as np
 from pathlib import Path
 
+# Hic scriptum ex 'env.sh' variabiles trahit
+AUTORL_HOME = os.environ.get("AUTORL_HOME", ".")
+AUTORL_DATA = os.environ.get("AUTORL_DATA", os.path.join(AUTORL_HOME, "data"))
+AUTORL_CHECKPOINTS = Path(os.environ.get("AUTORL_CHECKPOINTS", os.path.join(AUTORL_HOME, "checkpoints")))
+
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 BASE_MODEL     = "Qwen/Qwen2.5-1.5B-Instruct"
+VAL_PATH       = os.path.join(AUTORL_DATA, "math_val.jsonl")
+
+# Inveniēns novissimum checkpoint ex via in env.sh definita
+try:
+    # Quaerimus in 'latest' sub-folder sicut antea
+    CHECKPOINT_DIR = sorted(
+        AUTORL_CHECKPOINTS.glob("checkpoint-*"), 
+        key=lambda p: int(p.name.split("-")[-1])
+    )[-1]
+except (IndexError, FileNotFoundError):
+    CHECKPOINT_DIR = AUTORL_CHECKPOINTS
+    
+
+BASE_MODEL     = "Qwen/Qwen2.5-1.5B-Instruct"
 VAL_PATH       = os.environ.get("AUTORL_DATA", "data") + "/math_val.jsonl"
-CHECKPOINT_DIR = sorted(Path(os.environ.get("AUTORL_CHECKPOINTS", "checkpoints")).glob("latest/checkpoint-*"), key=lambda p: int(p.name.split("-")[-1]))[-1]
+
+#CHECKPOINT_DIR = Path(os.environ.get("AUTORL_CHECKPOINTS", "checkpoints")) / "latest" / "checkpoint-200"
+
 N_EVAL         = 200
 K_SAMPLES      = 8
 MAX_NEW_TOKENS = 512
@@ -22,6 +43,7 @@ SYSTEM_PROMPT = (
     "Solve problems step by step, "
     "then state the final answer as \\boxed{answer}."
 )
+
 
 def make_prompt(problem):
     return f"<|im_start|>system\n{SYSTEM_PROMPT}\n\n<|im_start|>user\n{problem}\n\n<|im_start|>assistant\n"
@@ -46,16 +68,12 @@ def eval_pass_at_1(model, tokenizer, dataset, device):
     with torch.no_grad():
         for item in dataset[:N_EVAL]:
             prompt = make_prompt(item["problem"])
-            inputs = tokenizer(prompt, return_tensors="pt",
-                              truncation=True, max_length=512).to(device)
+            inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512).to(device)
             outputs = model.generate(
                 **inputs, max_new_tokens=MAX_NEW_TOKENS,
                 do_sample=False, pad_token_id=tokenizer.eos_token_id
             )
-            response = tokenizer.decode(
-                outputs[0][inputs.input_ids.shape[1]:],
-                skip_special_tokens=True
-            )
+            response = tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
             pred = extract_answer(response)
             if pred and str(pred).strip() == str(item["answer"]).strip():
                 correct += 1
@@ -67,21 +85,15 @@ def eval_pass_at_k(model, tokenizer, dataset, device, k=8):
     with torch.no_grad():
         for item in dataset[:N_EVAL]:
             prompt = make_prompt(item["problem"])
-            inputs = tokenizer(prompt, return_tensors="pt",
-                              truncation=True, max_length=512).to(device)
+            inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512).to(device)
             outputs = model.generate(
                 **inputs, max_new_tokens=MAX_NEW_TOKENS,
                 do_sample=True, temperature=0.8,
                 num_return_sequences=k,
                 pad_token_id=tokenizer.eos_token_id
             )
-            responses = tokenizer.batch_decode(
-                outputs[:, inputs.input_ids.shape[1]:],
-                skip_special_tokens=True
-            )
-            if any(extract_answer(r) and
-                   str(extract_answer(r)).strip() == str(item["answer"]).strip()
-                   for r in responses):
+            responses = tokenizer.batch_decode(outputs[:, inputs.input_ids.shape[1]:], skip_special_tokens=True)
+            if any(extract_answer(r) and str(extract_answer(r)).strip() == str(item["answer"]).strip() for r in responses):
                 solved += 1
     return solved / min(N_EVAL, len(dataset))
 
@@ -92,14 +104,18 @@ def compute_escape_radius(model, base_model, tokenizer, dataset, device):
     with torch.no_grad():
         for item in dataset[:KL_SAMPLE_SIZE]:
             prompt = make_prompt(item["problem"])
-            inputs = tokenizer(prompt, return_tensors="pt",
-                              truncation=True, max_length=256).to(device)
+            inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=256).to(device)
+            
+            # Logits ex ambōbus modellīs
             trained_logits = model(**inputs).logits[0, -1, :]
             base_logits = base_model(**inputs).logits[0, -1, :]
-            trained_probs = torch.softmax(trained_logits, dim=-1)
-            base_log_probs = torch.log_softmax(base_logits, dim=-1)
+            
+            # KL Divergence: sum(P * (logP - logQ))
+            trained_log_probs = torch.log_softmax(trained_logits, dim=-1)
+            base_probs = torch.softmax(base_logits, dim=-1)
+            
             kl = torch.nn.functional.kl_div(
-                base_log_probs, trained_probs, reduction='sum'
+                trained_log_probs, base_probs, reduction='sum'
             ).item()
             kl_values.append(kl)
     return float(np.mean(kl_values))
@@ -128,10 +144,7 @@ def evaluate():
     base_model = AutoModelForCausalLM.from_pretrained(
         BASE_MODEL, dtype=torch.bfloat16, device_map="auto"
     )
-    base_model.eval()
-    for p in base_model.parameters():
-        p.requires_grad = False
-
+    
     dataset = load_val(VAL_PATH)
     print(f"Evaluating on {min(N_EVAL, len(dataset))} problems...")
 
