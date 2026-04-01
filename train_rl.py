@@ -37,7 +37,7 @@ MAX_PROMPT_LENGTH   = 256           # max prompt length
 # ============================================================
 
 AUTORL_HOME      = os.environ.get("AUTORL_HOME", "/home/oz/workspace/working/RL/autorl-lrm")
-AUTORL_DATA      = AUTORL_HOME + "/data"
+Autorl_DATA      = AUTORL_HOME + "/data"
 AUTORL_CHECKPOINTS = AUTORL_HOME + "/checkpoints"
 BASE_MODEL       = "Qwen/Qwen2.5-1.5B-Instruct"
 TRAIN_PATH       = os.environ.get("AUTORL_DATA", AUTORL_HOME + "/data") + "/math_train.jsonl"

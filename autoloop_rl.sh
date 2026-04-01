@@ -1,7 +1,9 @@
 #!/bin/bash
 # autoloop_rl.sh — Autonomous RL Research Loop
-# first set AUTORL_HOME in your .bashrc 
-source ~/workspace/working/RL/autorl-lrm/env.sh
+# first set AUTORL_HOME in by "bash env.sh"
+
+_this_dir="$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && pwd)"
+source "$_this_dir/env.sh"
 
 AUTORL_LOG=$AUTORL_HOME/log
 

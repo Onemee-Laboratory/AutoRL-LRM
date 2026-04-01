@@ -5,3 +5,39 @@ commit	pass@1	pass@8	escape_radius	status	description
 f66b74d	0.390000	0.560000	0.000599	pending	experiment_1
 6561e3e	0.355000	0.565000	0.000519	pending	experiment_2
 6e3d210	0.380000	0.565000	0.000448	pending	experiment_5
+1b52564	0.365000	0.570000	0.000349	pending	experiment_6
+34ba6f6	0.350000	0.595000	0.000569	pending	experiment_7
+9aedfb3	0.385000	0.565000	0.000505	keep	experiment_8: dense reward, KL_COEFF=0.0, N_SAMPLES=16
+<current-commit>	0.385000	0.565000	0.000505	keep	experiment_9: confidence_gated reward, DEVIATION_BONUS=0.1, KL_COEFF=0.0, N_SAMPLES=8
+f20d544	0.380000	0.580000	0.000370	pending	experiment_9
+088ae67	0.380000	0.585000	0.000370	pending	experiment_10
+4cc6420	0.380000	0.585000	0.000370	pending	experiment_11
+0e0c673	0.380000	0.550000	0.000370	pending	experiment_12
+cad8548	0.380000	0.580000	0.000370	pending	experiment_13
+704d4bc	0.375000	0.600000	0.000293	pending	experiment_15
+b29442c	0.395000	0.580000	0.000292	pending	experiment_16
+fb0f7b8	0.395000	0.585000	0.000292	pending	experiment_17
+d77da5f	0.395000	0.575000	0.000292	pending	experiment_18
+512f083	0.395000	0.605000	0.000292	pending	experiment_19
+6f67e08	0.395000	0.580000	0.000292	pending	experiment_20
+8c1cbb8	0.395000	0.565000	0.000292	pending	experiment_21
+<current-commit>	0.395000	0.565000	0.000292	keep	experiment_22: cgdb_asymmetric reward, KL_COEFF=0.0, N_SAMPLES=16, ALPHA_S=1.0, ALPHA_C=0.4
+763a790	0.395000	0.555000	0.000292	pending	experiment_22
+c574960	0.395000	0.565000	0.000292	pending	experiment_23
+37d9daa	0.395000	0.580000	0.000292	pending	experiment_24
+0fb74f8	0.395000	0.550000	0.000292	pending	experiment_25
+24e9473	0.395000	0.545000	0.000292	pending	experiment_26
+484106c	0.395000	0.580000	0.000292	pending	experiment_27
+617bddb	0.395000	0.570000	0.000292	pending	experiment_28
+97898c8	0.395000	0.580000	0.000292	pending	experiment_29
+ca13331	0.395000	0.545000	0.000292	pending	experiment_30
+df2cc22	0.395000	0.525000	0.000292	pending	experiment_31
+5487cc8	0.395000	0.585000	0.000292	pending	experiment_32
+c19f4c1	0.395000	0.580000	0.000292	pending	experiment_33
+72e7dff	0.395000	0.580000	0.000292	pending	experiment_34
+ba6d46f	0.395000	0.570000	0.000292	pending	experiment_35
+0e7dd0d	0.395000	0.605000	0.000292	pending	experiment_36
+406750a	0.395000	0.590000	0.000292	pending	experiment_37
+ea18f73	0.395000	0.555000	0.000292	pending	experiment_38
+d165c4e	0.395000	0.600000	0.000292	pending	experiment_39
+654f3b4	0.395000	0.550000	0.000292	pending	experiment_40
