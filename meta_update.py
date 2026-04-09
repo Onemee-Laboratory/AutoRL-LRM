@@ -1,7 +1,7 @@
 """
 meta_update.py — Meta-agent for AutoRL-LRM self-improvement loop
 =================================================================
-Reads new_papers.md + results_rl.tsv, then uses the Claude API to:
+Reads new_papers.md + results_rl.tsv, then uses the ollama API to:
   1. Identify actionable new ideas not yet in program_rl.md
   2. Propose new parameters or reward functions for train_trl.py
   3. Update program_rl.md with new experiment steps and paper connections
@@ -26,12 +26,22 @@ from pathlib import Path
 # Paths (all relative to AUTORL_HOME, no hardcodes)
 # ---------------------------------------------------------------------------
 
-AUTORL_HOME        = os.environ.get("AUTORL_HOME", str(Path(__file__).resolve().parent))
-NEW_PAPERS_PATH    = os.path.join(AUTORL_HOME, "new_papers.md")
-PROGRAM_RL_PATH    = os.path.join(AUTORL_HOME, "program_rl.md")
-TRAIN_TRL_PATH     = os.path.join(AUTORL_HOME, "train_trl.py")
-RESULTS_TSV_PATH   = os.path.join(AUTORL_HOME, "results_rl.tsv")
-META_LOG_PATH      = os.path.join(AUTORL_HOME, "meta_update_log.md")
+AUTORL_HOME   = os.environ.get("AUTORL_HOME", str(Path(__file__).resolve().parent))
+WATCHLIST_DIR = os.path.join(AUTORL_HOME, "watchlist")
+os.makedirs(WATCHLIST_DIR, exist_ok=True)
+
+NEW_PAPERS_PATH = os.path.join(WATCHLIST_DIR, "news_papers.md")
+CLASSIC_FILE    = os.path.join(WATCHLIST_DIR, "classic_papers.md")
+HIGH_INDEX_FILE = os.path.join(WATCHLIST_DIR, "high_index_papers.md")
+OLD_FILE        = os.path.join(WATCHLIST_DIR, "old_papers.md")
+WATCHLIST_FILE  = os.path.join(WATCHLIST_DIR, "watchlist.md")
+FACTOR_FILE     = os.path.join(WATCHLIST_DIR, "factor_stats.json")
+
+
+PROGRAM_RL_PATH  = os.path.join(AUTORL_HOME, "program_rl.md")
+TRAIN_TRL_PATH   = os.path.join(AUTORL_HOME, "train_trl.py")
+RESULTS_TSV_PATH = os.path.join(AUTORL_HOME, "results_rl.tsv")
+META_LOG_PATH    = os.path.join(AUTORL_HOME, "meta_update_log.md")
 
 # Ollama model — override via env var AUTORL_META_MODEL
 # e.g. export AUTORL_META_MODEL=qwen2.5-coder:32b
@@ -45,8 +55,8 @@ MAX_TOKENS  = 4096
 # Uses /api/chat with system + user messages (same as OpenAI chat format).
 # ---------------------------------------------------------------------------
 
-def call_claude(system: str, user: str) -> str:
-    """Name kept as call_claude for minimal diff; calls Ollama internally."""
+def call_ollama(system: str, user: str) -> str:
+    """Name kept as call_ollama for minimal diff; calls Ollama internally."""
     payload = json.dumps({
         "model":   MODEL,
         "stream":  False,
@@ -292,7 +302,7 @@ def run(apply: bool = False, patch_train: bool = False):
     print("\n[meta_update] Querying ollama for program_rl.md updates ...")
     prompt = build_program_update_prompt(new_papers, program_rl, results)
     try:
-        update_content = call_claude(SYSTEM_PROGRAM_UPDATE, prompt)
+        update_content = call_ollama(SYSTEM_PROGRAM_UPDATE, prompt)
     except Exception as e:
         print(f"[meta_update] ollama API error: {e}")
         return
@@ -324,7 +334,7 @@ def run(apply: bool = False, patch_train: bool = False):
                 print(f"\n[meta_update] Querying ollama for train_trl.py patch ({i+1}/{len(high_value)}) ...")
                 patch_prompt = build_train_patch_prompt(paper_block, train_trl)
                 try:
-                    patch_code = call_claude(SYSTEM_TRAIN_PATCH, patch_prompt)
+                    patch_code = call_ollama(SYSTEM_TRAIN_PATCH, patch_prompt)
                 except Exception as e:
                     print(f"[meta_update] ollama API error on patch {i+1}: {e}")
                     continue

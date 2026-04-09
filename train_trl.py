@@ -23,16 +23,16 @@ from trl import GRPOConfig, GRPOTrainer
 # === AGENT MODIFIES THESE ===
 # ============================================================
 
-LR                  = 3e-6          # learning rate
-KL_COEFF            = 0.0           # KL penalty weight
+LR                  = 1e-6          # learning rate
+KL_COEFF            = 0.02          # KL penalty weight
 REWARD_SHAPING      = "cgdb_asymmetric"  # binary | dense | confidence_gated | cgdb_asymmetric
 DEVIATION_BONUS     = 0.0           # CGDB bonus coefficient (0 = disabled)
 DEVIATION_THRESHOLD = 0.5           # CGDB: min reward to trigger bonus
-TEMPERATURE         = 0.8           # sampling temperature
+TEMPERATURE         = 1.2           # sampling temperature
 N_SAMPLES           = 16            # samples per prompt (GRPO group size)
-TRAIN_STEPS         = 400           # training steps
+TRAIN_STEPS         = 1000          # training steps
 GRAD_ACCUM          = 8             # gradient accumulation steps
-MAX_NEW_TOKENS      = 256           # max tokens to generate
+MAX_NEW_TOKENS      = 384           # max tokens to generate
 LR_SCHEDULER        = "cosine"      # cosine | constant | linear
 MAX_PROMPT_LENGTH   = 256           # max prompt length
 
@@ -279,6 +279,26 @@ class HessianTracker:
     def step(self, loss, model, global_step: int, escape_radius: float = float("nan")):
         if global_step % self.every_n != 0:
             return
+
+        # Compute grad_norm to detect zero-gradient cases
+        params = [p for p in model.parameters() if p.requires_grad]
+        if not params:
+            print(f"[Hessian] step={global_step:4d}  no trainable params → λ_max=nan")
+            self.history["step"].append(global_step)
+            self.history["lambda_max"].append(float("nan"))
+            self.history["escape_radius"].append(escape_radius)
+            return
+
+        grad_norm_sq = sum((p.grad ** 2).sum().item() for p in params if p.grad is not None)
+        grad_norm = math.sqrt(grad_norm_sq) if grad_norm_sq > 0 else 0.0
+
+        if grad_norm < 1e-8:
+            print(f"[Hessian] step={global_step:4d}  grad_norm={grad_norm:.2e} → skipping Hessian (zero gradient)")
+            self.history["step"].append(global_step)
+            self.history["lambda_max"].append(float("nan"))
+            self.history["escape_radius"].append(escape_radius)
+            return
+
         lam = self.compute_lambda_max(loss, model)
         self.history["step"].append(global_step)
         self.history["lambda_max"].append(lam)

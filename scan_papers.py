@@ -1,385 +1,219 @@
+# -*- coding: utf-8 -*-
 """
 scan_papers.py — Literature scanner for AutoRL-LRM self-improvement loop
 =========================================================================
-Queries arxiv and Semantic Scholar for new papers relevant to RLVR,
-reward shaping, and large reasoning models. Extracts actionable
-hyperparameters and reward functions. Writes new_papers.md.
+Part of the Meta Loop (autoloop_meta.sh). 
+Dual-Engine: ArXiv (Pre-prints) + Semantic Scholar (Conferences/Journals).
 
-Usage:
-    python scan_papers.py                        # scan last 7 days
-    python scan_papers.py --since 14             # scan last 14 days
-    python scan_papers.py --since 30 --max 50    # broader sweep
+Usage Examples:
+    python scan_papers.py --since 7 --queries "RLVR"
+    python scan_papers.py --authors "Yoshua Bengio" --keywords "reasoning"
 
-Output:
-    $AUTORL_HOME/new_papers.md   (appended, timestamped)
-
-Dependencies: requests (stdlib-adjacent, always available)
+Output: $AUTORL_WATCHLIST/new_papers.md (Bullet Block Format)
 """
 
-import os
-import re
-import json
-import time
+
 import argparse
 import datetime
-import urllib.request
+import json
+import os
+import sys
+import time
 import urllib.parse
+import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
-
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-
-AUTORL_HOME = os.environ.get("AUTORL_HOME", str(Path(__file__).resolve().parent))
-OUTPUT_PATH = os.path.join(AUTORL_HOME, "new_papers.md")
-
-# Search queries — tuned for RLVR + LRM + reward shaping
-ARXIV_QUERIES = [
-    "reinforcement learning verifiable rewards reasoning",
-    "GRPO reward shaping language model math",
-    "RLVR large reasoning model reward hacking",
-    "KL divergence policy collapse language model training",
-    "reward shaping chain of thought verifier",
-    "test time compute scaling reasoning model",
-    "MCMC sampling language model inference",
-]
-
-S2_QUERIES = [
-    "RLVR reward shaping reasoning model 2025 2026",
-    "GRPO KL penalty reward hacking LLM",
-    "chain of thought verifier learnability",
-    "escape radius policy divergence reinforcement learning",
-]
-
-# Keywords that flag a paper as highly relevant
-HIGH_RELEVANCE_KEYWORDS = [
-    "RLVR", "GRPO", "PPO", "reward shaping", "verifiable reward",
-    "chain of thought", "CoT verifier", "reasoning model", "escape radius",
-    "KL divergence", "policy collapse", "diversity collapse", "pass@k",
-    "CGDB", "deviation bonus", "power sampling", "Metropolis",
-    "Hessian", "loss landscape", "leash", "math reasoning",
-]
-
-# Keywords for extracting actionable parameters from abstracts
-PARAM_PATTERNS = [
-    (r"learning rate[s]?\s+(?:of\s+)?(\d[\d\.e\-]+)", "LR"),
-    (r"temperature\s+(?:of\s+)?(\d[\d\.]+)",           "TEMPERATURE"),
-    (r"KL\s+(?:coefficient|coeff|weight)\s+(?:of\s+)?(\d[\d\.e\-]+)", "KL_COEFF"),
-    (r"(\d+)\s+samples?\s+per\s+prompt",               "N_SAMPLES"),
-    (r"group\s+size\s+(?:of\s+)?(\d+)",                "N_SAMPLES"),
-    (r"(\d+)\s+rollouts?",                             "N_SAMPLES"),
-    (r"alpha\s*[=:]\s*(\d[\d\.]+)",                    "POWER_ALPHA"),
-]
+from typing import Dict, List, Any
 
 
-# ---------------------------------------------------------------------------
-# arxiv API
-# ---------------------------------------------------------------------------
+def get_env_config(name: str) -> str:
+  """Retrieves a mandatory environment variable or exits."""
+  val = os.environ.get(name)
+  if not val:
+    print(f"❌ ERROR: Variable '{name}' is NOT SET in env.sh.")
+    sys.exit(1)
+  return val
 
-ARXIV_NS = "http://www.w3.org/2005/Atom"
 
-def search_arxiv(query: str, since_days: int, max_results: int = 20) -> list[dict]:
-    """Query arxiv search API. Returns list of paper dicts."""
-    since_dt = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) - datetime.timedelta(days=since_days)
-    since_str = since_dt.strftime("%Y%m%d")
-
-    params = urllib.parse.urlencode({
-        "search_query": f"all:{urllib.parse.quote(query)}",
-        "start": 0,
-        "max_results": max_results,
-        "sortBy": "submittedDate",
-        "sortOrder": "descending",
-    })
-    url = f"https://export.arxiv.org/api/query?{params}"
-
-    max_attempts = 3
-    xml_data = None
-    for attempt in range(max_attempts):
-        try:
-            with urllib.request.urlopen(url, timeout=15) as resp:
-                xml_data = resp.read().decode("utf-8")
-            break
-        except urllib.error.HTTPError as e:
-            if e.code == 429:
-                wait = 5 * (attempt + 1)
-                print(f"  [arxiv] rate limited (429) for '{query}' — waiting {wait}s (attempt {attempt+1}/{max_attempts})")
-                time.sleep(wait)
-                if attempt == max_attempts - 1:
-                    print(f"  [arxiv] giving up after {max_attempts} attempts for '{query}'")
-                    return []
-            else:
-                print(f"  [arxiv] HTTP error {e.code} for '{query}': {e}")
-                return []
-        except Exception as e:
-            print(f"  [arxiv] request failed for '{query}': {e}")
-            return []
- 
-    if xml_data is None:
-        return []
-
-    papers = []
+def robust_request(url: str, max_retries: int = 3) -> bytes:
+  """Performs an HTTP request with exponential backoff for 429 errors."""
+  headers = {"User-Agent": "AutoRL-Scanner/2.0"}
+  for attempt in range(max_retries):
     try:
-        root = ET.fromstring(xml_data)
-        for entry in root.findall(f"{{{ARXIV_NS}}}entry"):
-            published = entry.findtext(f"{{{ARXIV_NS}}}published", "")
-            # filter by date
-            pub_date = published[:10].replace("-", "")
-            if pub_date < since_str:
-                continue
-
-            arxiv_id = entry.findtext(f"{{{ARXIV_NS}}}id", "").split("/abs/")[-1].strip()
-            title   = entry.findtext(f"{{{ARXIV_NS}}}title", "").replace("\n", " ").strip()
-            summary = entry.findtext(f"{{{ARXIV_NS}}}summary", "").replace("\n", " ").strip()
-            authors = [
-                a.findtext(f"{{{ARXIV_NS}}}name", "")
-                for a in entry.findall(f"{{{ARXIV_NS}}}author")
-            ]
-            papers.append({
-                "source":    "arxiv",
-                "id":        arxiv_id,
-                "title":     title,
-                "abstract":  summary,
-                "authors":   authors[:4],
-                "published": published[:10],
-                "url":       f"https://arxiv.org/abs/{arxiv_id}",
-            })
-    except ET.ParseError as e:
-        print(f"  [arxiv] parse error: {e}")
-
-    return papers
+      req = urllib.request.Request(url, headers=headers)
+      with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.read()
+    except urllib.error.HTTPError as e:
+      if e.code == 429:
+        wait = int(e.headers.get("Retry-After", 60))
+        print(f"  ⚠️ [429] Rate limit hit. Waiting {wait}s...")
+        time.sleep(wait)
+      else:
+        break
+    except Exception:
+      time.sleep(5)
+  return None
 
 
-# ---------------------------------------------------------------------------
-# Semantic Scholar API
-# ---------------------------------------------------------------------------
+def fetch_arxiv(query: str, prefix: str = "all:", limit: int = 10) -> List[Dict]:
+  """Fetches papers from the ArXiv API."""
+  if not query:
+    return []
+  encoded_q = urllib.parse.quote(f"{prefix}\"{query.strip()}\"")
+  url = (f"https://export.arxiv.org/api/query?search_query={encoded_q}"
+         f"&max_results={limit}&sortBy=submittedDate&sortOrder=descending")
+  data = robust_request(url)
+  if not data:
+    return []
 
-def search_s2(query: str, since_days: int, max_results: int = 10) -> list[dict]:
-    """Query Semantic Scholar public API."""
-    since_year = (datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) - datetime.timedelta(days=since_days)).year
-
-    params = urllib.parse.urlencode({
-        "query": query,
-        "limit": max_results,
-        "fields": "title,abstract,authors,year,externalIds,publicationDate",
-        "year": f"{since_year}-",
-    })
-    url = f"https://api.semanticscholar.org/graph/v1/paper/search?{params}"
-
-    
-    max_attempts = 3
-    for attempt in range(max_attempts):
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "AutoRL-LRM-Scanner/1.0"})
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            break   # success — exit retry loop
-        except urllib.error.HTTPError as e:
-            if e.code == 429:
-                wait = 5 * (attempt + 1)   # 5s, 10s, 15s
-                print(f"  [S2] rate limited (429) for '{query}' — waiting {wait}s (attempt {attempt+1}/{max_attempts})")
-                time.sleep(wait)
-                if attempt == max_attempts - 1:
-                    print(f"  [S2] giving up after {max_attempts} attempts for '{query}'")
-                    return []
-            else:
-                print(f"  [S2] HTTP error {e.code} for '{query}': {e}")
-                return []
-        except Exception as e:
-            print(f"  [S2] request failed for '{query}': {e}")
-            return []
-
-    papers = []
-    for p in data.get("data", []):
-        ext_ids = p.get("externalIds", {})
-        arxiv_id = ext_ids.get("ArXiv", "")
-        papers.append({
-            "source":    "semanticscholar",
-            "id":        arxiv_id or p.get("paperId", ""),
-            "title":     p.get("title", ""),
-            "abstract":  (p.get("abstract") or "")[:800],
-            "authors":   [a["name"] for a in p.get("authors", [])[:4]],
-            "published": p.get("publicationDate", str(p.get("year", ""))),
-            "url":       (f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id
-                         else f"https://www.semanticscholar.org/paper/{p.get('paperId','')}"),
-        })
-    return papers
+  try:
+    root = ET.fromstring(data)
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
+    results = []
+    for entry in root.findall("atom:entry", ns):
+      aid = entry.findtext("atom:id", "", ns).split("/abs/")[-1].strip()
+      results.append({
+          "id": aid,
+          "source": "arxiv",
+          "title": entry.findtext("atom:title", "", ns).strip().replace("\n", " "),
+          "abstract": entry.findtext("atom:summary", "", ns).strip().replace("\n", " "),
+          "authors": ", ".join([a.findtext("atom:name", "", ns) 
+                               for a in entry.findall("atom:author", ns)]),
+          "year": entry.findtext("atom:published", "", ns)[:4],
+          "date_sort": entry.findtext("atom:published", "", ns)[:10].replace("-", ""),
+          "url": f"https://arxiv.org/abs/{aid}",
+          "tags": ["arxiv"]
+      })
+    return results
+  except ET.ParseError:
+    return []
 
 
-# ---------------------------------------------------------------------------
-# Relevance scoring
-# ---------------------------------------------------------------------------
+def fetch_s2(query: str, limit: int = 10) -> List[Dict]:
+  """Fetches papers from the Semantic Scholar API."""
+  if not query:
+    return []
+  params = urllib.parse.urlencode({
+      "query": query,
+      "limit": limit,
+      "fields": "paperId,title,abstract,authors,year,publicationDate,url"
+  })
+  url = f"https://api.semanticscholar.org/graph/v1/paper/search?{params}"
+  data = robust_request(url)
+  if not data:
+    return []
 
-def relevance_score(paper: dict) -> int:
-    text = (paper["title"] + " " + paper["abstract"]).lower()
-    score = sum(1 for kw in HIGH_RELEVANCE_KEYWORDS if kw.lower() in text)
-    return score
-
-
-def extract_params(abstract: str) -> dict:
-    """Try to extract concrete hyperparameter values mentioned in the abstract."""
-    found = {}
-    for pattern, name in PARAM_PATTERNS:
-        m = re.search(pattern, abstract, re.IGNORECASE)
-        if m:
-            found[name] = m.group(1)
-    return found
-
-
-def classify_contribution(abstract: str) -> list[str]:
-    """Tag what kind of contribution this paper makes."""
-    tags = []
-    ab = abstract.lower()
-    if any(w in ab for w in ["reward shaping", "reward function", "reward signal"]):
-        tags.append("reward_shaping")
-    if any(w in ab for w in ["sampling", "inference", "test-time", "test time"]):
-        tags.append("inference_method")
-    if any(w in ab for w in ["kl", "divergence", "constraint", "penalty"]):
-        tags.append("kl_regularisation")
-    if any(w in ab for w in ["diversity", "collapse", "pass@k", "pass@"]):
-        tags.append("diversity")
-    if any(w in ab for w in ["hessian", "curvature", "sharpness", "landscape"]):
-        tags.append("loss_landscape")
-    if any(w in ab for w in ["verifier", "critic", "discriminator"]):
-        tags.append("verifier")
-    if any(w in ab for w in ["curriculum", "difficulty", "progressive"]):
-        tags.append("curriculum")
-    if any(w in ab for w in ["policy gradient", "advantage estimator", "reinforce",
-                              "rloo", "dapo", "grpo", "ppo", "actor-critic",
-                              "update rule", "policy optimization", "policy optimisation"]):
-        tags.append("algorithm")
-    return tags or ["general"]
+  try:
+    items = json.loads(data).get("data", [])
+    return [{
+        "id": p.get("paperId"),
+        "source": "s2",
+        "title": p.get("title", ""),
+        "abstract": p.get("abstract") or "No abstract available.",
+        "authors": ", ".join([a.get("name") for a in p.get("authors", [])]),
+        "year": str(p.get("year", "")),
+        "date_sort": (p.get("publicationDate") or 
+                     f"{p.get('year')}-01-01").replace("-", ""),
+        "url": p.get("url"),
+        "tags": ["semantic_scholar"]
+    } for p in items]
+  except json.JSONDecodeError:
+    return []
 
 
-# ---------------------------------------------------------------------------
-# Deduplication
-# ---------------------------------------------------------------------------
+def perform_scan(queries: List[str], authors: List[str], 
+                 since_days: int, max_per_q: int) -> Dict[str, Dict]:
+  """Orchestrates data collection with CLI status updates."""
+  found_papers = {}
+  since_dt = (datetime.datetime.now() - 
+              datetime.timedelta(days=since_days)).strftime("%Y%m%d")
 
-def load_seen_ids(output_path: str) -> set:
-    seen = set()
-    if not os.path.exists(output_path):
-        return seen
-    with open(output_path) as f:
-        for line in f:
-            m = re.search(r"arxiv\.org/abs/([\d\.v]+)", line)
-            if m:
-                seen.add(m.group(1))
-            m2 = re.search(r"\*\*ID:\*\*\s*([\w\.]+)", line)
-            if m2:
-                seen.add(m2.group(1))
-    return seen
+  print(f"📡 Starting scan for: {queries} {authors}")
 
+  for author in authors:
+    for p in fetch_arxiv(author, prefix="au:", limit=max_per_q):
+      if p["date_sort"] >= since_dt:
+        found_papers[p["id"]] = p
+    time.sleep(1)
 
-# ---------------------------------------------------------------------------
-# Markdown output
-# ---------------------------------------------------------------------------
+  for q in queries:
+    combined = fetch_arxiv(q, limit=max_per_q) + fetch_s2(q, limit=max_per_q)
+    for p in combined:
+      if p["date_sort"] >= since_dt:
+        found_papers[p["id"]] = p
+    time.sleep(1)
 
-def format_paper(paper: dict, score: int, params: dict, tags: list) -> str:
-    lines = [
-        f"### {paper['title']}",
-        f"- **Source:** {paper['source']}  |  **ID:** {paper['id']}",
-        f"- **Authors:** {', '.join(paper['authors'])}",
-        f"- **Published:** {paper['published']}",
-        f"- **URL:** {paper['url']}",
-        f"- **Relevance score:** {score}  |  **Tags:** {', '.join(tags)}",
-    ]
-    if params:
-        param_str = ", ".join(f"`{k}={v}`" for k, v in params.items())
-        lines.append(f"- **Extracted params:** {param_str}")
-
-    # truncate abstract
-    ab = paper["abstract"]
-    if len(ab) > 400:
-        ab = ab[:397] + "..."
-    lines.append(f"- **Abstract:** {ab}")
-    lines.append("")
-    return "\n".join(lines)
+  return found_papers
 
 
-def write_output(papers: list[dict], output_path: str, since_days: int):
-    timestamp = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M UTC")
-    header = (
-        f"\n\n---\n"
-        f"## Scan: {timestamp}  (last {since_days} days)\n\n"
-        f"Found {len(papers)} relevant papers.\n\n"
-    )
+def write_output(papers: List[Dict], meta: Dict[str, Any]):
+  """Writes final results and prints success message."""
+  watchlist_dir = Path(get_env_config("AUTORL_WATCHLIST"))
+  filename = get_env_config("AUTORL_WATCHLIST_NEW_PAPERS")
+  output_path = watchlist_dir / filename
+  
+  tz = datetime.timezone(datetime.timedelta(hours=-7))
+  timestamp = datetime.datetime.now(tz).strftime("%Y-%m-%d %H:%M %Z")
 
-    sections = {"algorithm": [], "reward_shaping": [], "inference_method": [],
-                "kl_regularisation": [], "diversity": [], "loss_landscape": [],
-                "verifier": [], "curriculum": [], "general": []}
+  watchlist_dir.mkdir(parents=True, exist_ok=True)
+  with open(output_path, "w", encoding="utf-8") as f:
+    f.write(f"\n\n---\n## Watchlist: {filename} | {timestamp}\n\n")
+    f.write("### # A. Scrutāmur (Scanning Context)\n")
+    f.write(f"- **Lookback:** {meta['since']} days\n")
+    f.write(f"- **Entities:** {', '.join(meta['entities'])}\n\n---\n\n")
 
     for p in papers:
-        tags  = classify_contribution(p["abstract"])
-        score = relevance_score(p)
-        prms  = extract_params(p["abstract"])
-        block = format_paper(p, score, prms, tags)
-        for tag in tags:
-            sections.get(tag, sections["general"]).append(block)
-
-    content = header
-    for section, blocks in sections.items():
-        if blocks:
-            content += f"### Category: {section}\n\n"
-            content += "\n".join(blocks)
-
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "a") as f:
-        f.write(content)
-
-    print(f"\n[scan_papers] Written {len(papers)} papers → {output_path}")
+      f.write(f"### {p.get('title')}\n")
+      f.write(f"- **Source:** {p.get('source')} | **ID:** {p.get('id')}\n")
+      f.write(f"- **Authors:** {p.get('authors')}\n")
+      f.write(f"- **URL:** {p.get('url')}\n")
+      f.write(f"- **Relevance:** {p.get('score')}\n")
+      f.write(f"- **Abstract:** {p.get('abstract')[:400].replace(os.linesep, ' ')}...\n\n")
+  
+  print(f"✅ Success: Results saved to {output_path}")
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+def main():
+  """Parses CLI arguments and executes the research pipeline."""
+  parser = argparse.ArgumentParser(description="AutoRL-LRM Literature Scanner")
+  parser.add_argument("--queries", nargs="+", default=[])
+  parser.add_argument("--authors", nargs="+", default=[])
+  parser.add_argument("--institutes", nargs="+", default=["Allen Institute"])
+  parser.add_argument("--universities", nargs="+", default=["MIT"])
+  parser.add_argument("--companies", nargs="+", default=["DeepMind"])
+  parser.add_argument("--keywords", nargs="+", default=["Reasoning", "RL"])
+  parser.add_argument("--since", type=int, default=7)
+  parser.add_argument("--max", type=int, default=10)
+  args = parser.parse_args()
 
-def run(since_days: int = 7, max_per_query: int = 15, min_score: int = 2):
-    print(f"[scan_papers] Scanning last {since_days} days ...")
-    seen = load_seen_ids(OUTPUT_PATH)
-    all_papers: dict[str, dict] = {}   # id → paper (dedup)
+  # Warning and Default Scope
+  if not args.queries and not args.authors:
+    print("⚠️ WARNING: No --queries or --authors provided.")
+    print("💡 Using default AutoRL-LRM research scope...")
+    args.queries = ["RLVR reasoning", "Large Reasoning Models", "DeepSeek GRPO"]
 
-    # arxiv
-    for i, query in enumerate(ARXIV_QUERIES):
-        print(f"  [arxiv {i+1}/{len(ARXIV_QUERIES)}] {query[:60]}")
-        results = search_arxiv(query, since_days, max_per_query)
-        for p in results:
-            if p["id"] and p["id"] not in seen and p["id"] not in all_papers:
-                all_papers[p["id"]] = p
-        time.sleep(1.5)   # arxiv rate limit: 3 req/s recommended
+  entities = args.institutes + args.universities + args.companies
+  search_queries = list(args.queries)
+  for entity in entities:
+    search_queries.append(f"\"{entity}\" reasoning")
 
-    # Semantic Scholar
-    for i, query in enumerate(S2_QUERIES):
-        print(f"  [S2 {i+1}/{len(S2_QUERIES)}] {query[:60]}")
-        results = search_s2(query, since_days, max_per_query)
-        for p in results:
-            if p["id"] and p["id"] not in seen and p["id"] not in all_papers:
-                all_papers[p["id"]] = p
-        time.sleep(1.0)
-
-    # Score and filter
-    scored = []
-    for paper in all_papers.values():
-        score = relevance_score(paper)
-        if score >= min_score:
-            scored.append((score, paper))
-
-    scored.sort(key=lambda x: -x[0])
-    filtered = [p for _, p in scored]
-
-    print(f"\n[scan_papers] {len(all_papers)} total → {len(filtered)} above threshold (score≥{min_score})")
-
-    if filtered:
-        write_output(filtered, OUTPUT_PATH, since_days)
-    else:
-        print("[scan_papers] No new relevant papers found.")
-
-    return filtered
+  raw_data = perform_scan(search_queries, args.authors, args.since, args.max)
+  
+  # Filter and Sort
+  kws = [k.lower() for k in args.keywords]
+  valid_papers = []
+  for p in raw_data.values():
+    score = sum(1 for k in kws if k in (p["title"] + p["abstract"]).lower())
+    if score > 0 or not kws:
+      p["score"] = score
+      valid_papers.append(p)
+  
+  if valid_papers:
+    sorted_papers = sorted(valid_papers, key=lambda x: x.get("score", 0), reverse=True)
+    write_output(sorted_papers, {"since": args.since, "entities": entities})
+  else:
+    print("ℹ️ No relevant papers found.")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--since",     type=int, default=7,  help="Days to look back")
-    parser.add_argument("--max",       type=int, default=15, help="Max results per query")
-    parser.add_argument("--min_score", type=int, default=2,  help="Min relevance score to include")
-    args = parser.parse_args()
-    run(since_days=args.since, max_per_query=args.max, min_score=args.min_score)
+  main()

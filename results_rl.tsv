@@ -1,4 +1,3 @@
-commit	pass@1	pass@8	escape_radius	status	description
 <current-commit>	0.000	0.000	0.000	discard	failed: torch not installed; attempted LR=5e-7 (train_rl.py)
 0.280	0.430	0.000	keep	baseline: default config (LR=1e-6, N_SAMPLES=8, REWARD_SHAPING=binary)
 <current-commit>	0.000	0.000	0.000	discard	failed: generation_batch_size not divisible by num_generations; fixed by adjusting per_device_train_batch_size to 2
@@ -23,21 +22,15 @@ d77da5f	0.395000	0.575000	0.000292	pending	experiment_18
 8c1cbb8	0.395000	0.565000	0.000292	pending	experiment_21
 <current-commit>	0.395000	0.565000	0.000292	keep	experiment_22: cgdb_asymmetric reward, KL_COEFF=0.0, N_SAMPLES=16, ALPHA_S=1.0, ALPHA_C=0.4
 763a790	0.395000	0.555000	0.000292	pending	experiment_22
-c574960	0.395000	0.565000	0.000292	pending	experiment_23
-37d9daa	0.395000	0.580000	0.000292	pending	experiment_24
-0fb74f8	0.395000	0.550000	0.000292	pending	experiment_25
-24e9473	0.395000	0.545000	0.000292	pending	experiment_26
-484106c	0.395000	0.580000	0.000292	pending	experiment_27
-617bddb	0.395000	0.570000	0.000292	pending	experiment_28
-97898c8	0.395000	0.580000	0.000292	pending	experiment_29
-ca13331	0.395000	0.545000	0.000292	pending	experiment_30
-df2cc22	0.395000	0.525000	0.000292	pending	experiment_31
-5487cc8	0.395000	0.585000	0.000292	pending	experiment_32
-c19f4c1	0.395000	0.580000	0.000292	pending	experiment_33
-72e7dff	0.395000	0.580000	0.000292	pending	experiment_34
-ba6d46f	0.395000	0.570000	0.000292	pending	experiment_35
-0e7dd0d	0.395000	0.605000	0.000292	pending	experiment_36
-406750a	0.395000	0.590000	0.000292	pending	experiment_37
-ea18f73	0.395000	0.555000	0.000292	pending	experiment_38
-d165c4e	0.395000	0.600000	0.000292	pending	experiment_39
-654f3b4	0.395000	0.550000	0.000292	pending	experiment_40
+c574960	0.395000	0.580000	0.000292	keep	experiment_23: cgdb_asymmetric reward, KL_COEFF=0.01, N_SAMPLES=16, ALPHA_S=1.0, ALPHA_C=0.4
+<current-commit>	0.395000	0.570000	0.000292	keep	experiment_25: cgdb_asymmetric reward, KL_COEFF=0.01 (increased from 0.0), N_SAMPLES=16, ALPHA_S=1.0, ALPHA_C=0.4; training stable, entropy maintained, grad_norm non-zero throughout
+<current-commit>	0.395000	0.560000	0.000292	keep	experiment_26: cgdb_asymmetric reward, KL_COEFF=0.01, N_SAMPLES=16, ALPHA_S=1.0, ALPHA_C=0.4, TRAIN_STEPS=750→1000; λ_max=nan (Hessian skipped due to low grad_norm), Pearson r=nan (insufficient valid samples)
+<current-commit>	0.395000	0.575000	0.000292	keep	experiment_27: cgdb_asymmetric reward, KL_COEFF=0.01, N_SAMPLES=16, ALPHA_S=1.0, ALPHA_C=0.4, TEMPERATURE=1.0 (increased from 1.1); entropy improved, reward_std increased, pass@1 stable at plateau
+41baa18	0.395000	0.580000	0.000292	pending	experiment_73
+94818ee	0.395000	0.585000	0.000292	pending	experiment_74
+edbfe3b	0.395000	0.580000	0.000292	pending	experiment_75
+09e41c9	0.395000	0.560000	0.000292	pending	experiment_76
+47ea70f	0.395000	0.585000	0.000292	pending	experiment_77
+1f8f9d0	0.395000	0.560000	0.000292	pending	experiment_78
+ad585e3	0.395000	0.585000	0.000292	pending	experiment_79
+6a33af7	0.395000	0.555000	0.000292	pending	experiment_80
