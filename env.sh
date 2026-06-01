@@ -60,8 +60,7 @@ export AUTORL_PROGRAM_RL="$AUTORL_WORKSPACE/program_rl.md"
 export AUTORL_THEORY="$AUTORL_WORKSPACE/theory.md"
 export AUTORL_TRAIN_TRL="$AUTORL_WORKSPACE/train_trl.py"
 export AUTORL_BASE_MODEL="Qwen/Qwen2.5-1.5B-Instruct"   # training model
-export AUTORL_META_MODEL="qwen3-coder-next"               # meta-agent model (Ollama)
-
+export AUTORL_META_MODEL="/home/oz/.cache/huggingface/hub/models--Qwen--Qwen2.5-7B-Instruct/snapshots/main"
 export VLLM_PYTHON="$AUTORL_HOME/venv/vllm-env/bin/python"
 export VLLM_HOST="http://localhost:8000"
 export OLLAMA_HOST="http://localhost:11434"

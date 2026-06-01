@@ -30,22 +30,25 @@ AUTORL_HOME   = os.environ.get("AUTORL_HOME", str(Path(__file__).resolve().paren
 WATCHLIST_DIR = os.path.join(AUTORL_HOME, "watchlist")
 os.makedirs(WATCHLIST_DIR, exist_ok=True)
 
-NEW_PAPERS_PATH = os.path.join(WATCHLIST_DIR, "news_papers.md")
+NEW_PAPERS_PATH = os.path.join(WATCHLIST_DIR, "new_papers.md")
 CLASSIC_FILE    = os.path.join(WATCHLIST_DIR, "classic_papers.md")
 HIGH_INDEX_FILE = os.path.join(WATCHLIST_DIR, "high_index_papers.md")
 OLD_FILE        = os.path.join(WATCHLIST_DIR, "old_papers.md")
 WATCHLIST_FILE  = os.path.join(WATCHLIST_DIR, "watchlist.md")
 FACTOR_FILE     = os.path.join(WATCHLIST_DIR, "factor_stats.json")
 
-
-PROGRAM_RL_PATH  = os.path.join(AUTORL_HOME, "program_rl.md")
-TRAIN_TRL_PATH   = os.path.join(AUTORL_HOME, "train_trl.py")
-RESULTS_TSV_PATH = os.path.join(AUTORL_HOME, "results_rl.tsv")
-META_LOG_PATH    = os.path.join(AUTORL_HOME, "meta_update_log.md")
+WORKSPACE        = str(Path(__file__).resolve().parent)
+PROGRAM_RL_PATH  = os.path.join(WORKSPACE, "program_rl.md")
+TRAIN_TRL_PATH   = os.path.join(WORKSPACE, "train_trl.py")
+RESULTS_TSV_PATH = os.path.join(WORKSPACE, "results_rl.tsv")
+META_LOG_PATH    = os.path.join(
+    os.environ.get("AUTORL_LOG", os.path.join(AUTORL_HOME, "log")),
+    "meta_update.log"
+)
 
 # Ollama model — override via env var AUTORL_META_MODEL
 # e.g. export AUTORL_META_MODEL=qwen2.5-coder:32b
-MODEL       = os.environ.get("AUTORL_META_MODEL", "qwen3-coder-next")
+MODEL       = os.environ.get("AUTORL_META_MODEL", "Qwen2.5-7B-Instruct")
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST",       "http://localhost:11434")
 MAX_TOKENS  = 4096
 
@@ -54,38 +57,51 @@ MAX_TOKENS  = 4096
 # Ollama API call (no SDK, pure urllib, no extra deps)
 # Uses /api/chat with system + user messages (same as OpenAI chat format).
 # ---------------------------------------------------------------------------
-
 def call_ollama(system: str, user: str) -> str:
-    """Name kept as call_ollama for minimal diff; calls Ollama internally."""
-    payload = json.dumps({
-        "model":   MODEL,
-        "stream":  False,
-        "options": {"num_predict": MAX_TOKENS, "temperature": 0.2},
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user",   "content": user},
-        ],
-    }).encode("utf-8")
+    host  = os.environ.get("VLLM_HOST", "")
+    model = os.environ.get("AUTORL_META_MODEL", "qwen3-coder-next")
 
-    req = urllib.request.Request(
-        f"{OLLAMA_HOST}/api/chat",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
+    if host:
+        # vLLM — OpenAI-compatible endpoint
+        url = f"{host}/v1/chat/completions"
+        payload = json.dumps({
+            "model":       model,
+            "max_tokens":  MAX_TOKENS,
+            "temperature": 0.2,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user},
+            ],
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
         with urllib.request.urlopen(req, timeout=300) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.URLError as e:
-        raise RuntimeError(
-            f"Ollama not reachable at {OLLAMA_HOST}. "
-            f"Is \'ollama serve\' running? Error: {e}"
+        return data["choices"][0]["message"]["content"]
+    else:
+        # Ollama fallback
+        url = f"{os.environ.get('OLLAMA_HOST', 'http://localhost:11434')}/api/chat"
+        payload = json.dumps({
+            "model":   model,
+            "stream":  False,
+            "options": {"num_predict": MAX_TOKENS, "temperature": 0.2},
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user},
+            ],
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
         )
-
-    # Ollama /api/chat response: {"message": {"role": "assistant", "content": "..."}}
-    return data["message"]["content"]
-
-
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return data["message"]["content"]
+    
 # ---------------------------------------------------------------------------
 # Load context files
 # ---------------------------------------------------------------------------
@@ -97,20 +113,45 @@ def load_file(path: str, max_chars: int = 8000) -> str:
         content = f.read()
     if len(content) > max_chars:
         # keep tail (most recent entries most relevant)
-        content = "...[truncated]...\n" + content[-max_chars:]
+        content = content[:max_chars] + "\n...[truncated]..."
     return content
 
+
+def _load_papers_only(path: str, max_chars: int = 15000) -> str:
+    """Load new_papers.md skipping scan log header lines."""
+    if not os.path.exists(path):
+        return f"[file not found: {path}]"
+    with open(path) as f:
+        content = f.read()
+    # Find first real section marker
+    for marker in ["## Scan:", "## Watchlist:", "### Category:"]:
+        idx = content.find(marker)
+        if idx != -1:
+            content = content[idx:]
+            break
+    return content[:max_chars] + ("\n...[truncated]..." if len(content) > max_chars else "")
 
 # ---------------------------------------------------------------------------
 # Prompts
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROGRAM_UPDATE = """
+CRITICAL: You may ONLY reference papers that appear word-for-word in the
+"Newly scanned papers" section of the user message below.
+If you cannot find at least one relevant paper there, output: NO_UPDATE
+Do NOT recall papers from your training data. Do NOT invent citations.
+
 You are a research assistant for the AutoRL-LRM project.
 Your job is to update program_rl.md with new actionable experiments
 derived from recently scanned papers.
 
 STRICT RULES:
+- NEVER add new ## Recommended Experiment Order or ## ALGORITHM sections.
+  Only append new numbered steps to the EXISTING Recommended Experiment Order.
+  Only append new algorithm names to the EXISTING ALGORITHM parameter table row.
+- ONLY reference papers that appear verbatim in the "Newly scanned papers" section below.
+- NEVER invent, hallucinate, or recall papers from your training data.
+- If no papers in the scan are genuinely new and relevant, output exactly: NO_UPDATE
 - Only add experiments that are directly implementable by modifying
   the === AGENT MODIFIES THESE === section of train_trl.py, OR by
   adding a new training function or reward function stub to that file.
@@ -289,8 +330,9 @@ def extract_high_value_papers(new_papers: str, min_score: int = 3) -> list[str]:
 
 def run(apply: bool = False, patch_train: bool = False):
     print(f"[meta_update] Loading context files ...")
-    new_papers = load_file(NEW_PAPERS_PATH, max_chars=10000)
-    program_rl = load_file(PROGRAM_RL_PATH, max_chars=8000)
+    #new_papers = load_file(NEW_PAPERS_PATH, max_chars=10000)
+    new_papers = _load_papers_only(NEW_PAPERS_PATH, max_chars=15000)
+    program_rl = load_file(PROGRAM_RL_PATH, max_chars=15000)
     results    = load_file(RESULTS_TSV_PATH, max_chars=3000)
     train_trl  = load_file(TRAIN_TRL_PATH,  max_chars=5000)
 

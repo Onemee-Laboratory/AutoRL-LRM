@@ -25,7 +25,6 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, List, Any
 
-
 def get_env_config(name: str) -> str:
   """Retrieves a mandatory environment variable or exits."""
   val = os.environ.get(name)
@@ -167,7 +166,7 @@ def write_output(papers: List[Dict], meta: Dict[str, Any]):
       f.write(f"- **Source:** {p.get('source')} | **ID:** {p.get('id')}\n")
       f.write(f"- **Authors:** {p.get('authors')}\n")
       f.write(f"- **URL:** {p.get('url')}\n")
-      f.write(f"- **Relevance:** {p.get('score')}\n")
+      f.write(f"- **Relevance score:** {p.get('score')}  |  **Tags:** arxiv\n")
       f.write(f"- **Abstract:** {p.get('abstract')[:400].replace(os.linesep, ' ')}...\n\n")
   
   print(f"✅ Success: Results saved to {output_path}")
@@ -190,7 +189,13 @@ def main():
   if not args.queries and not args.authors:
     print("⚠️ WARNING: No --queries or --authors provided.")
     print("💡 Using default AutoRL-LRM research scope...")
-    args.queries = ["RLVR reasoning", "Large Reasoning Models", "DeepSeek GRPO"]
+    args.queries = [
+    "RLVR mathematical reasoning",
+    "GRPO reward shaping math LLM",
+    "REINFORCE RLOO DAPO math reasoning",
+    "KL divergence policy collapse math",
+    "reward hacking verifier math language model",
+]
 
   entities = args.institutes + args.universities + args.companies
   search_queries = list(args.queries)
