@@ -1,2 +1,5 @@
 sync_from_h100.sh
-
+new_papers.md 
+.DS_Store
+*Minibuf*
+*.graph
